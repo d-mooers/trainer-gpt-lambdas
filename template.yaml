@@ -1,0 +1,125 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  trainer-gpt-sam
+
+  Sample SAM Template for trainer-gpt-sam
+
+Parameters:
+  OpenAiApiKey:
+    Type: String
+    Description: OpenAI API Key
+    NoEcho: true
+# More info about Globals: https://github.com/awslabs/serverless-application-model/blob/master/docs/globals.rst
+Globals:
+  Function:
+    Timeout: 60
+
+    Tracing: Active
+  Api:
+    TracingEnabled: true
+Resources:
+  ### QUEUES
+  PlanGenerationQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "plan-generation-queue-${AWS::StackName}"
+      VisibilityTimeout: 120
+  ### S3 Buckets
+  PlanBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "plan-bucket-${AWS::StackName}"
+      AccessControl: Private
+      VersioningConfiguration:
+        Status: Enabled
+  PlanApi:
+    Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
+    Properties:
+      CodeUri: plan-api/
+      Handler: app.lambdaHandler
+      Runtime: nodejs18.x
+      Architectures:
+        - x86_64
+      Environment:
+        Variables:
+          SQS_QUEUE_URL: !GetAtt PlanGenerationQueue.QueueUrl
+      Policies:
+        - SQSSendMessagePolicy:
+            QueueName: !GetAtt PlanGenerationQueue.QueueName
+            Arn: !GetAtt PlanGenerationQueue.Arn
+        - S3FullAccessPolicy:
+            BucketName: !GetAtt PlanBucket.BucketName
+            BucketArn: !GetAtt PlanBucket.Arn
+
+      Events:
+        StartPlanGeneration:
+          Type: Api # More info about API Event Source: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#api
+          Properties:
+            Path: /plan/generate
+            Method: post
+        # Should be /plan/{planId} where planId is the id of the plan
+        GetPlan:
+          Type: Api
+          Properties:
+            Path: /plan/{planId}
+            Method: get
+    Metadata: # Manage esbuild properties
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: es2020
+        Sourcemap: true
+        EntryPoints:
+          - app.ts
+  PlanGeneration:
+    Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
+    Properties:
+      CodeUri: plan-generation/
+      Handler: app.lambdaHandler
+      Runtime: nodejs18.x
+      Architectures:
+        - x86_64
+      Environment:
+        Variables:
+          OPENAI_API_KEY: !Ref OpenAiApiKey
+      ## Needs to be able to write to the S3 Bucket
+      Policies:
+        - S3WritePolicy:
+            BucketName: !GetAtt PlanBucket.BucketName
+            BucketArn: !GetAtt PlanBucket.Arn
+      Events:
+        PlanQueueRecieve:
+          Type: SQS # More info about API Event Source: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#api
+          Properties:
+            Queue: !GetAtt PlanGenerationQueue.Arn
+            BatchSize: 1
+    Metadata: # Manage esbuild properties
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: es2020
+        Sourcemap: true
+        EntryPoints:
+          - app.ts
+
+  ApplicationResourceGroup:
+    Type: AWS::ResourceGroups::Group
+    Properties:
+      Name:
+        Fn::Sub: ApplicationInsights-SAM-${AWS::StackName}
+      ResourceQuery:
+        Type: CLOUDFORMATION_STACK_1_0
+  ApplicationInsightsMonitoring:
+    Type: AWS::ApplicationInsights::Application
+    Properties:
+      ResourceGroupName:
+        Ref: ApplicationResourceGroup
+      AutoConfigurationEnabled: "true"
+Outputs:
+  # ServerlessRestApi is an implicit API created out of Events key under Serverless::Function
+  # Find out more about other implicit resources you can reference within SAM
+  # https://github.com/awslabs/serverless-application-model/blob/master/docs/internals/generated_resources.rst#api
+  Success:
+    Description: "Success"
+    Value: "Success"
