@@ -2,6 +2,7 @@ import { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
 import { SendMessageCommand, SQSClient } from '@aws-sdk/client-sqs';
 import { v4 } from 'uuid';
 import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
+import { PlanGenerationSpec } from '../types';
 
 /**
  *
@@ -86,7 +87,7 @@ async function handlePost(event: APIGatewayProxyEvent): Promise<APIGatewayProxyR
             answers,
             userId,
             uuid,
-        }),
+        } as PlanGenerationSpec),
     });
     const [response] = await Promise.all([sqsClient.send(command), s3Client.send(s3Command)]);
 
